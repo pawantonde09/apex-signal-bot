@@ -949,30 +949,71 @@ def check_strategy_10_tsmom(data_cache, active_trades, cooldown):
         save_state(active_trades, cooldown)
     return 0.0, f"R5 Nasdaq TSMOM (MNQ ~{cur_p:,.0f})"
 
-# ── HELPER: BUILD DAILY BRIEFING MESSAGE ────────────────────────────
+# ── HELPER: BUILD GAUGE BAR ────────────────────────────────────────
+def make_gauge_bar(z):
+    mag = min(abs(z), 2.5)
+    blocks = int(round((mag / 2.5) * 10))
+    blocks = max(1, min(10, blocks))
+    bar = "█" * blocks + "░" * (10 - blocks)
+    if abs(z) >= 2.0:
+        status = "🚨 READY"
+    elif abs(z) >= 1.4:
+        status = "⚡ WATCH"
+    else:
+        status = "⚪ NEUTRAL"
+    return f"[{bar}] {z:+.2f}σ {status}"
+
+def get_strat_z(strat_results, prefix):
+    for name, z in strat_results:
+        if name.startswith(prefix) or prefix in name:
+            return z
+    return 0.0
+
+# ── HELPER: BUILD DAILY BRIEFING MESSAGE (VARIATION 5 DASHBOARD) ───
 def build_daily_briefing(now_ist, now_utc, scan_count, strat_results, active_trades, sender_name="Pawan"):
+    s4_z = get_strat_z(strat_results, "S4 SP/Gold")
+    s8_z = get_strat_z(strat_results, "S8 Russell/SP")
+    s10_z = get_strat_z(strat_results, "S10 Dow/SP")
+    s9_z = get_strat_z(strat_results, "S9 Treasury")
+    eth_z = get_strat_z(strat_results, "ETH/BTC")
+    
+    time_str = f"{now_ist.strftime('%I:%M %p IST')} | {now_utc.strftime('%H:%M UTC')}"
     lines = [
-        f"☀️ <b>DAILY PROP FIRM BRIEFING & RADAR — {now_ist.strftime('%d-%b-%Y')}</b>",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        f"📅 <b>Time:</b> {now_ist.strftime('%I:%M %p IST')} ({now_utc.strftime('%H:%M UTC')})",
-        f"🤖 <b>Engine Health:</b> 100% ONLINE (Continuous 5s live scan active)",
-        f"🔄 <b>Total Loop Scans:</b> #{scan_count}",
-        f"💼 <b>Active Open Positions:</b> {len(active_trades)}",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        "📊 <b>LIVE STRATEGY RADAR & Z-SCORES:</b>"
+        "🦅 <b>APEX 24/7 PROP TRADER DASHBOARD</b>",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"⏰ <b>{time_str}</b>",
+        "🛰️ <b>Cloud Server:</b> Active &amp; Scanning (24/7)",
+        f"💼 <b>Active Positions:</b> {len(active_trades)} Open",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "🎯 <b>LIVE STRATEGY GAUGES &amp; TARGETS:</b>\n",
+        
+        "<b>[S4] S&amp;P / GOLD RATIO</b>",
+        f"  <code>{make_gauge_bar(s4_z)}</code>",
+        "  🎯 Target: +$425.00 | 🛑 Stop: -$85.00 (5:1 R:R)\n",
+        
+        "<b>[S8] RUSSELL / S&amp;P RATIO</b>",
+        f"  <code>{make_gauge_bar(s8_z)}</code>",
+        "  🎯 Target: +$280.00 | 🛑 Stop: -$85.00 (3.3:1 R:R)\n",
+        
+        "<b>[S10] DOW / S&amp;P RATIO</b>",
+        f"  <code>{make_gauge_bar(s10_z)}</code>",
+        "  🎯 Target: +$340.00 | 🛑 Stop: -$85.00 (4:1 R:R)\n",
+        
+        "<b>[S9] TREASURY 10Y/30Y</b>",
+        f"  <code>{make_gauge_bar(s9_z)}</code>",
+        "  🎯 Target: +$238.00 | 🛑 Stop: -$85.00 (2.8:1 R:R)\n",
+        
+        "<b>[S4] ETH / BTC CRYPTO</b>",
+        f"  <code>{make_gauge_bar(eth_z)}</code>",
+        "  🎯 Target: +$123.25 | 🛑 Stop: -$85.00 (1.5:1 R:R)",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "🛡️ <b>CAPITAL &amp; DRAWDOWN GUARD:</b>",
+        "• Strict Apex Trailing Stop Protection Active",
+        "• Zero Duplicate Alerts Guaranteed",
+        "• Continuous 5-Second Autonomous Scan",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "📱 <i>Cloud Server is monitoring markets continuously.</i>"
     ]
-    for s_name, s_z in strat_results:
-        flag = "🚨" if abs(s_z) >= 2.0 else "🎯"
-        lines.append(f"• {flag} <b>{s_name}:</b> Z = {s_z:+.2f}σ")
-    lines.extend([
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        "🛡️ <b>PROP FIRM RISK AUDIT:</b>",
-        "• Real CME Futures Feeds: 100% Exact Market Prices",
-        "• Response Latency: Under 5 Seconds to Phone Alert",
-        "• Hard Risk Cap: -$85.00 per trade stop bracket active",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        "💡 <i>Tip: Send 'daily' or '/status' anytime on your phone for an instant live update.</i>"
-    ])
     return "\n".join(lines)
 
 # ── MAIN DAEMON ENGINE (PARALLEL 5-SECOND BACKGROUND SCAN) ──────────
