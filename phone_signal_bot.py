@@ -1,9 +1,10 @@
 """
-MASTER 24/7 PROP FIRM SIGNAL BOT — REAL CME MICRO FUTURES ENGINE (V8 PRODUCTION)
-================================================================================
+MASTER 24/7 PROP FIRM SIGNAL BOT — REAL CME MICRO FUTURES ENGINE (V8.1 ZERO-DEPENDENCY)
+========================================================================================
 Direct CME Micro Futures Feeds (MGC=F, MES=F, MYM=F, MNQ=F, M2K=F, ZN=F, ZB=F, 6E=F).
 Features:
-  • 100% Real Live CME Futures Prices (MGC ~$3,875+, MES ~$7,635+, MYM ~$52,490+)
+  • 100% Pure Python Standard Library (ZERO pip packages required! Instant cloud deploy)
+  • 100% Real Live CME Futures Prices (MGC ~$3,875+, MES ~$7,640+, MYM ~$52,490+)
   • Parallel Multithreaded Scanning (All 8 futures refreshed in ~1.1 seconds)
   • Continuous 5-Second Scan Loop (Autonomous non-stop background execution)
   • Persistent State Engine (bot_state.json): Survives restarts, zero duplicate alerts
@@ -11,7 +12,8 @@ Features:
   • Real-time TP & SL Exit Notifications (Strict -$85 Apex Risk Limit)
   • Option 4 "Two-Leg Spread Master Format"
   • Scheduled Daily Briefings (09:00 AM IST & 09:00 PM IST) + Instant On-Demand (/status)
-================================================================================
+  • Embedded Cloud Health Check HTTP Server (Zero-fail Render / Cloud deployment)
+========================================================================================
 Bot Handle: @Tradehisbbot
 User Chat ID: 8748961508
 """
@@ -19,6 +21,7 @@ User Chat ID: 8748961508
 import os
 import sys
 import time
+import math
 import datetime
 import urllib.request
 import urllib.parse
@@ -27,8 +30,6 @@ import concurrent.futures
 import http.server
 import socketserver
 import threading
-import pandas as pd
-import numpy as np
 
 # Force UTF-8 encoding on standard out
 if sys.stdout.encoding != 'utf-8':
@@ -48,7 +49,7 @@ class CloudHealthHandler(http.server.BaseHTTPRequestHandler):
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         now_ist = now_utc + datetime.timedelta(hours=5, minutes=30)
         resp = {
-            "engine": "Apex Prop Firm 24/7 Futures Signal Bot (V8)",
+            "engine": "Apex Prop Firm 24/7 Futures Signal Bot (V8.1 Pure Python)",
             "status": "ONLINE",
             "time_ist": now_ist.strftime('%Y-%m-%d %I:%M:%S %p IST'),
             "time_utc": now_utc.strftime('%Y-%m-%d %H:%M:%S UTC'),
@@ -59,10 +60,13 @@ class CloudHealthHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+class ReusableTCPServer(socketserver.TCPServer):
+    allow_reuse_address = True
+
 def start_cloud_health_server():
     try:
-        with socketserver.TCPServer(("", CLOUD_PORT), CloudHealthHandler) as httpd:
-            print(f"[Cloud Health Server]: Listening on port {CLOUD_PORT} for 24/7 uptime pings.")
+        with ReusableTCPServer(("0.0.0.0", CLOUD_PORT), CloudHealthHandler) as httpd:
+            print(f"[Cloud Health Server]: Listening on 0.0.0.0:{CLOUD_PORT} for 24/7 uptime pings.")
             httpd.serve_forever()
     except Exception as e:
         print(f"[Cloud Health Server Note]: {e}")
@@ -84,9 +88,8 @@ def send_telegram(msg: str) -> bool:
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
             return resp.status == 200
-    except urllib.error.HTTPError as e:
+    except urllib.error.HTTPError:
         try:
-            # Strip tags for safety fallback
             clean_text = msg.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "")
             payload = {
                 "chat_id": TELEGRAM_CHAT_ID,
@@ -144,7 +147,7 @@ def save_state(active_trades, cooldown):
     except Exception as e:
         print(f"[State Save Error]: {e}")
 
-# ── DIRECT CME FUTURES LIVE DATA FETCHERS ───────────────────────────
+# ── DIRECT CME FUTURES LIVE DATA FETCHERS (PURE PYTHON) ─────────────
 def fetch_futures_1h(ticker, range_days="1mo"):
     """Fetches clean 1-hour candles directly from real CME continuous futures."""
     try:
@@ -155,11 +158,11 @@ def fetch_futures_1h(ticker, range_days="1mo"):
         res = data['chart']['result'][0]
         closes = res['indicators']['quote'][0]['close']
         timestamps = res['timestamp']
-        clean = [(timestamps[i], closes[i]) for i in range(len(closes)) if closes[i] is not None]
+        clean = [(timestamps[i], float(closes[i])) for i in range(len(closes)) if closes[i] is not None]
         if not clean:
             return None, None
         t_arr, c_arr = zip(*clean)
-        return np.array(t_arr), np.array(c_arr)
+        return list(t_arr), list(c_arr)
     except Exception:
         return None, None
 
@@ -172,19 +175,30 @@ def fetch_binance_1h(symbol="ETHBTC", limit=150):
             data = json.loads(resp.read().decode("utf-8"))
         t_arr = [b[0]//1000 for b in data]
         c_arr = [float(b[4]) for b in data]
-        return np.array(t_arr), np.array(c_arr)
+        return list(t_arr), list(c_arr)
     except Exception:
         return None, None
 
-# ── HELPER: BOLLINGER BANDS ─────────────────────────────────────────
+# ── PURE PYTHON MATH: BOLLINGER BANDS & EMA (NO NUMPY / NO PANDAS) ──
 def calc_bb(series, window, mult):
-    s = pd.Series(series)
-    mid = s.rolling(window).mean().iloc[-1]
-    std = s.rolling(window).std().iloc[-1]
+    """Calculates Bollinger Bands and Z-score using pure standard library math."""
+    sub = series[-window:]
+    n = len(sub)
+    mid = sum(sub) / n
+    variance = sum((x - mid) ** 2 for x in sub) / (n - 1) if n > 1 else 0.0
+    std = math.sqrt(variance)
     upper = mid + mult * std
     lower = mid - mult * std
     z = (series[-1] - mid) / std if std > 0 else 0.0
     return mid, upper, lower, std, z
+
+def calc_ema(series, span):
+    """Calculates Exponential Moving Average using standard recursive formula."""
+    alpha = 2.0 / (span + 1.0)
+    ema = [series[0]]
+    for x in series[1:]:
+        ema.append(alpha * x + (1.0 - alpha) * ema[-1])
+    return ema
 
 # ───────────────────────────────────────────────────────────────────
 # ACTIVE TRADES MONITOR & EXIT CHECKER
@@ -303,7 +317,7 @@ def check_strategy_1_dow_sp(data_cache, active_trades, cooldown):
         return 0.0, "S10: Dow/S&P"
         
     min_len = min(len(d_close), len(s_close))
-    ratios = d_close[-min_len:] / s_close[-min_len:]
+    ratios = [d / s for d, s in zip(d_close[-min_len:], s_close[-min_len:])]
     mid, upper, lower, std, z = calc_bb(ratios, 35, 2.2)
     cur_r = ratios[-1]
     
@@ -406,7 +420,7 @@ def check_strategy_2_sp_gold(data_cache, active_trades, cooldown):
         return 0.0, "S4: S&P/Gold"
         
     min_len = min(len(s_close), len(g_close))
-    ratios = s_close[-min_len:] / g_close[-min_len:]
+    ratios = [s / g for s, g in zip(s_close[-min_len:], g_close[-min_len:])]
     mid, upper, lower, std, z = calc_bb(ratios, 40, 2.0)
     cur_r = ratios[-1]
     
@@ -507,7 +521,7 @@ def check_strategy_3_treasury(data_cache, active_trades, cooldown):
         return 0.0, "S9: Treasury"
         
     min_len = min(len(zn_c), len(zb_c))
-    spread = 3.0 * zn_c[-min_len:] - 2.0 * zb_c[-min_len:]
+    spread = [3.0 * zn - 2.0 * zb for zn, zb in zip(zn_c[-min_len:], zb_c[-min_len:])]
     mid, upper, lower, std, z = calc_bb(spread, 30, 2.2)
     cur_s = spread[-1]
     
@@ -614,7 +628,7 @@ def check_strategy_5_russell_sp(data_cache, active_trades, cooldown):
     if m2k_c is None or mes_c is None or len(m2k_c) < 30 or len(mes_c) < 30:
         return 0.0, "S8: Russell/S&P"
     min_len = min(len(m2k_c), len(mes_c))
-    ratios = m2k_c[-min_len:] / mes_c[-min_len:]
+    ratios = [m / s for m, s in zip(m2k_c[-min_len:], mes_c[-min_len:])]
     mid, upper, lower, std, z = calc_bb(ratios, 30, 2.0)
     cur_r = ratios[-1]
     
@@ -673,10 +687,12 @@ def check_strategy_6_euro_trend(data_cache, active_trades, cooldown):
     t_e, e_close = data_cache.get("6E=F", (None, None))
     if e_close is None or len(e_close) < 50:
         return 0.0, "R12: FX Euro"
-    s = pd.Series(e_close)
-    ema9 = s.ewm(span=9).mean().iloc[-1]
-    ema21 = s.ewm(span=21).mean().iloc[-1]
-    ema50 = s.ewm(span=50).mean().iloc[-1]
+    ema9_arr = calc_ema(e_close, 9)
+    ema21_arr = calc_ema(e_close, 21)
+    ema50_arr = calc_ema(e_close, 50)
+    ema9 = ema9_arr[-1]
+    ema21 = ema21_arr[-1]
+    ema50 = ema50_arr[-1]
     cur_p = e_close[-1]
     
     if strat_key in active_trades:
@@ -691,7 +707,7 @@ def check_strategy_6_euro_trend(data_cache, active_trades, cooldown):
     now_ist = now_utc + datetime.timedelta(hours=5, minutes=30)
     time_str = f"{now_ist.strftime('%I:%M %p IST')} ({now_utc.strftime('%H:%M UTC')})"
     
-    if cur_p > ema50 and ema9 > ema21 and s.ewm(span=9).mean().iloc[-2] <= s.ewm(span=21).mean().iloc[-2]:
+    if cur_p > ema50 and ema9 > ema21 and ema9_arr[-2] <= ema21_arr[-2]:
         tp_p = round(cur_p + 0.0100, 4)
         sl_p = round(cur_p - 0.0050, 4)
         msg = (
@@ -830,7 +846,7 @@ def check_strategy_9_cluster(data_cache, active_trades, cooldown):
     if q_close is None or s_close is None or len(q_close) < 35 or len(s_close) < 35:
         return 0.0, "R2: Nasdaq/SP"
     min_len = min(len(q_close), len(s_close))
-    ratios = q_close[-min_len:] / s_close[-min_len:]
+    ratios = [q / s for q, s in zip(q_close[-min_len:], s_close[-min_len:])]
     mid, upper, lower, std, z = calc_bb(ratios, 35, 2.2)
     cur_r = ratios[-1]
     
@@ -888,8 +904,8 @@ def check_strategy_10_tsmom(data_cache, active_trades, cooldown):
     t_q, q_close = data_cache.get("MNQ=F", (None, None))
     if q_close is None or len(q_close) < 50:
         return 0.0, "R5: TSMOM"
-    s = pd.Series(q_close)
-    ema50 = s.ewm(span=50).mean().iloc[-1]
+    ema50_arr = calc_ema(q_close, 50)
+    ema50 = ema50_arr[-1]
     cur_p = round(q_close[-1], 0)
     
     if strat_key in active_trades:
@@ -904,7 +920,7 @@ def check_strategy_10_tsmom(data_cache, active_trades, cooldown):
     now_ist = now_utc + datetime.timedelta(hours=5, minutes=30)
     time_str = f"{now_ist.strftime('%I:%M %p IST')} ({now_utc.strftime('%H:%M UTC')})"
     
-    if q_close[-1] > ema50 and q_close[-2] <= s.ewm(span=50).mean().iloc[-2]:
+    if q_close[-1] > ema50 and q_close[-2] <= ema50_arr[-2]:
         tp_p = cur_p + 60.0
         sl_p = cur_p - 42.5
         msg = (
@@ -965,7 +981,7 @@ def main():
     threading.Thread(target=start_cloud_health_server, daemon=True).start()
 
     print("=" * 65)
-    print("🚀 MASTER 24/7 PROP FIRM SIGNAL ENGINE (V8 PRODUCTION)")
+    print("🚀 MASTER 24/7 PROP FIRM SIGNAL ENGINE (V8.1 ZERO-DEPENDENCY)")
     print(f"Target Bot: @Tradehisbbot | User ID: {TELEGRAM_CHAT_ID}")
     print("Market Feeds: Direct CME Micro Futures (MGC, MES, MYM, MNQ, M2K, ZN, ZB)")
     print("Execution Engine: Parallel Threads | 5-Second Autonomous Loop")
