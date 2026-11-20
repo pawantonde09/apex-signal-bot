@@ -67,7 +67,7 @@ class CloudHealthHandler(http.server.BaseHTTPRequestHandler):
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         now_ist = now_utc + datetime.timedelta(hours=5, minutes=30)
         resp = {
-            "engine": "Funding Pips $5k Precision Engine (V9.0 Auto-Trader)",
+            "engine": "Funding Pips $5k Precision Engine (V9.2 Top 5 Zero-DD Auto-Trader)",
             "prop_firm": PROP_FIRM_NAME,
             "status": "ONLINE",
             "time_ist": now_ist.strftime('%Y-%m-%d %I:%M:%S %p IST'),
